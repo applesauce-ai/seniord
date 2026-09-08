@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: orders
+      POSTGRES_DB: orders
+    # Host port 5433 to avoid clashing with a local PostgreSQL on 5432.
+    # Container-internal connections still use 5432 (see DATABASE_URL below).
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orders -d orders"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://orders:orders@db:5432/orders
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["python", "-m", "worker.stock_worker"]
+    environment:
+      DATABASE_URL: postgresql://orders:orders@db:5432/orders
+      WORKER_POLL_INTERVAL: "1.0"
+      WORKER_BATCH_SIZE: "50"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Optional push adapter: forwards order.accepted events to a webhook (e.g. Discord).
+  # Opt-in via the "webhook" profile so it never starts (or posts) unless asked:
+  #   WEBHOOK_URL is read from .env (gitignored) — never commit a real webhook URL.
+  #   docker compose --profile webhook up -d webhook-forwarder
+  webhook-forwarder:
+    build: .
+    profiles: ["webhook"]
+    command: ["python", "-m", "scripts.webhook_forwarder"]
+    environment:
+      DATABASE_URL: postgresql://orders:orders@db:5432/orders
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_FORMAT: ${WEBHOOK_FORMAT:-discord}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # The order-events consumer as its own long-running container — independent of
+  # the API/worker. Stopping the API doesn't kill it; it retries and catches up
+  # when the API returns. Its cursor persists in a volume, so restarting the
+  # consumer resumes where it left off.
+  #   docker compose --profile consumer up -d consumer
+  #   docker compose logs -f consumer
+  consumer:
+    build: .
+    profiles: ["consumer"]
+    command: ["python", "-m", "scripts.consume_order_events"]
+    environment:
+      API_BASE_URL: http://api:8000
+      # Scope this consumer to a single customer's orders (a filtered
+      # subscription). Blank / unset would receive every accepted order.
+      CONSUMER_CUSTOMER_ID: ${CONSUMER_CUSTOMER_ID:-cust-42}
+      CONSUMER_OFFSET_FILE: /state/consumer_offset.txt
+    volumes:
+      - consumer_state:/state
+    depends_on:
+      - api
+
+volumes:
+  db_data:
+  consumer_state:

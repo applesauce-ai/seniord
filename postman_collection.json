@@ -1,0 +1,371 @@
+{
+  "info": {
+    "name": "Order & Stock System",
+    "_postman_id": "0a5c1e2b-1f3a-4c9d-8b7e-order-stock-0001",
+    "description": "Minimal order-intake and stock system (FastAPI + PostgreSQL).\n\nBefore running: start the stack with `make up`, then seed products with `make seed` (creates BAN-001, APL-003, MLK-001).\n\nVariables: baseUrl (default http://localhost:8000), order_ref (auto-set by 'Create order'), after_id (feed cursor).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "order_ref",
+      "value": "web-100045"
+    },
+    {
+      "key": "after_id",
+      "value": "0"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Create order (201 first time)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 or 201', function () {",
+                  "    pm.expect([200, 201]).to.include(pm.response.code);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.order_ref) { pm.collectionVariables.set('order_ref', body.order_ref); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_ref\": \"web-100045\",\n  \"customer_id\": \"cust-42\",\n  \"items\": [\n    {\n      \"sku\": \"BAN-001\",\n      \"qty\": 2\n    },\n    {\n      \"sku\": \"APL-003\",\n      \"qty\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "First submission returns 201 with duplicate=false."
+          }
+        },
+        {
+          "name": "Create order again (200 duplicate)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_ref\": \"web-100045\",\n  \"customer_id\": \"cust-42\",\n  \"items\": [\n    {\n      \"sku\": \"BAN-001\",\n      \"qty\": 2\n    },\n    {\n      \"sku\": \"APL-003\",\n      \"qty\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Same order_ref -> 200 with duplicate=true; no new order/stock event."
+          }
+        },
+        {
+          "name": "Create order (400 unknown SKU)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_ref\": \"web-bad\",\n  \"customer_id\": \"cust-42\",\n  \"items\": [\n    {\n      \"sku\": \"NOPE-999\",\n      \"qty\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Unknown SKU is rejected before any write (rolls back)."
+          }
+        },
+        {
+          "name": "Get order by ref",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{order_ref}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{order_ref}}"
+              ]
+            },
+            "description": "Full order with per-line price snapshots."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List products (in-stock status)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products"
+              ]
+            },
+            "description": "Catalogue with an in_stock boolean \u2014 no remaining count."
+          }
+        },
+        {
+          "name": "Create product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"EGG-012\",\n  \"name\": \"Eggs 12pk\",\n  \"price_cents\": 349,\n  \"stock\": 40\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products"
+              ]
+            },
+            "description": "Create a new SKU. 409 if the sku already exists."
+          }
+        },
+        {
+          "name": "Get stock for SKU",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products/BAN-001/stock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products",
+                "BAN-001",
+                "stock"
+              ]
+            },
+            "description": "Detailed levels: available / on_hand / reserved."
+          }
+        },
+        {
+          "name": "Add stock (+20)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"add\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/BAN-001/stock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products",
+                "BAN-001",
+                "stock"
+              ]
+            },
+            "description": "Increment on-hand stock. Use {\"set\": N} to set an absolute level."
+          }
+        },
+        {
+          "name": "Set stock (=0)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"set\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/MLK-001/stock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products",
+                "MLK-001",
+                "stock"
+              ]
+            },
+            "description": "Set absolute on-hand stock (>= reserved)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events (Option A feed)",
+      "item": [
+        {
+          "name": "Order-accepted feed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/orders?after_id={{after_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "after_id",
+                  "value": "{{after_id}}"
+                }
+              ]
+            },
+            "description": "Replayable feed of accepted orders; page forward with after_id."
+          }
+        },
+        {
+          "name": "Order-accepted feed (one customer)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/orders?after_id={{after_id}}&customer_id=cust-42",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "after_id",
+                  "value": "{{after_id}}"
+                },
+                {
+                  "key": "customer_id",
+                  "value": "cust-42"
+                }
+              ]
+            },
+            "description": "Filtered subscription: only this customer's accepted orders."
+          }
+        }
+      ]
+    }
+  ]
+}

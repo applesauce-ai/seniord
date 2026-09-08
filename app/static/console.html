@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Order &amp; Stock — Live Console</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --sunken: #0b0f14; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --amber: #d29922; --red: #f85149;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.5; overflow-x: hidden; }
+  .card { overflow: hidden; }
+  code, .mono { font-family: var(--mono); }
+  header {
+    padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px;
+    position: sticky; top: 0; background: rgba(13,17,23,.9); backdrop-filter: blur(6px); z-index: 5;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.bad { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 22px 24px 60px; display: grid; gap: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+  .card > h2 {
+    margin: 0; padding: 12px 16px; font-size: 12px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--muted); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px;
+  }
+  .card .body { padding: 16px; }
+  .pill { font-size: 11px; font-family: var(--mono); background: var(--sunken); border: 1px solid var(--border); border-radius: 20px; padding: 2px 9px; color: var(--muted); }
+
+  /* control bar */
+  .control { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .bigbtn { font: 600 15px var(--sans); cursor: pointer; border-radius: 8px; padding: 12px 22px; border: 1px solid; transition: .15s; }
+  .bigbtn.go { background: #238636; border-color: #2ea043; color: #fff; }
+  .bigbtn.go:hover { background: #2ea043; }
+  .bigbtn.stop { background: #6e1e1e; border-color: var(--red); color: #ffdcd9; }
+  .bigbtn.stop:hover { background: #8b2626; }
+  .reset { font: 500 13px var(--sans); cursor: pointer; background: var(--sunken); color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+  .reset:hover { color: var(--text); border-color: #444c56; }
+  .rate { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .rate input { width: 60px; }
+  .genstats { display: flex; gap: 22px; margin-left: auto; }
+  .genstats .g { text-align: right; }
+  .genstats .g .n { font: 700 20px var(--mono); }
+  .genstats .g .l { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .genstats .g.ok .n { color: var(--green); }
+  .genstats .g.fail .n { color: var(--red); }
+
+  /* monitor */
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat { background: var(--sunken); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; transition: border-color .3s; }
+  .stat .n { font: 700 32px var(--mono); }
+  .stat .l { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-top: 2px; }
+  .stat.pending.hot { border-color: var(--amber); background: rgba(210,153,34,.08); }
+  .stat.pending.hot .n { color: var(--amber); }
+  .stat.processed .n { color: var(--green); }
+  .spark { margin-top: 14px; }
+  .spark .cap { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .spark svg { width: 100%; height: 60px; display: block; background: var(--sunken); border: 1px solid var(--border); border-radius: 6px; }
+  .bars { display: grid; gap: 11px; margin-top: 16px; }
+  .bar-row { display: grid; grid-template-columns: 130px 1fr 56px; gap: 10px; align-items: center; }
+  .bar-row .sku { font: 13px var(--mono); } .bar-row .sku small { color: var(--muted); display: block; font-size: 11px; }
+  .track { height: 13px; background: var(--sunken); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .fill { height: 100%; width: 0; background: var(--green); transition: width .5s ease, background .3s; }
+  .fill.low { background: var(--amber); } .fill.neg { background: var(--red); }
+  .bar-row .val { text-align: right; font: 600 14px var(--mono); }
+
+  /* playground */
+  button { font: 500 13px var(--sans); cursor: pointer; background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px; }
+  button:hover { background: #2d333b; }
+  button.primary { background: #238636; border-color: #2ea043; } button.primary:hover { background: #2ea043; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input, textarea { font: 13px var(--mono); background: var(--sunken); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; }
+  input { width: 140px; } textarea { width: 100%; min-height: 160px; resize: vertical; margin-top: 10px; line-height: 1.45; }
+  label { font-size: 12px; color: var(--muted); }
+  .tabs { display: flex; gap: 0; padding: 0 8px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 11px 13px; font: 600 12px var(--mono); cursor: pointer; white-space: nowrap; border-radius: 0; }
+  .tab:hover { color: var(--text); background: transparent; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .panel[hidden] { display: none; }
+  .ep-sig { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; font: 13px var(--mono); }
+  .ep-sig code { color: var(--text); }
+  .ep-sig .desc { margin-left: auto; color: var(--muted); font-size: 12px; font-family: var(--sans); }
+  .ep-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ep-run label { min-width: 64px; }
+  .ep-run input { flex: 1; max-width: 260px; }
+  .ep-run button { margin-left: auto; min-width: 74px; }
+  .panel textarea { margin: 0 0 10px; }
+  .method { font: 700 11px var(--mono); padding: 2px 6px; border-radius: 4px; }
+  .m-GET { background: rgba(88,166,255,.15); color: var(--accent); } .m-POST { background: rgba(63,185,80,.15); color: var(--green); }
+  .m-PATCH { background: rgba(210,153,34,.18); color: var(--amber); }
+  #log { background: var(--sunken); border: 1px solid var(--border); border-radius: 8px; max-height: 300px; overflow: auto; }
+  .entry { border-bottom: 1px solid var(--border); padding: 9px 12px; } .entry:last-child { border-bottom: none; }
+  .entry .head { display: flex; align-items: center; gap: 8px; font: 12px var(--mono); }
+  .entry .time { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .badge { font: 700 11px var(--mono); padding: 2px 7px; border-radius: 4px; }
+  .s2 { background: rgba(63,185,80,.15); color: var(--green); } .s4 { background: rgba(210,153,34,.18); color: var(--amber); } .s5, .serr { background: rgba(248,81,73,.15); color: var(--red); }
+  pre { margin: 6px 0 0; font: 12px var(--mono); white-space: pre-wrap; word-break: break-word; color: #adbac7; }
+  pre.code { margin: 0; }
+  .req-label { font: 600 10px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 8px 0 3px; }
+  .j-key { color: #79c0ff; } .j-str { color: #a5d6ff; } .j-num { color: #f0883e; }
+  .j-bool { color: #d2a8ff; } .j-null { color: #8b949e; } .j-punct { color: #6e7681; }
+  .term { background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 13px 15px; font: 12.5px var(--mono); white-space: pre; overflow-x: auto; }
+  .term .c { color: var(--green); } .term .m { color: var(--muted); }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+</style>
+</head>
+<body>
+<header>
+  <span id="health" class="dot"></span>
+  <div>
+    <h1>Order &amp; Stock — Live Console</h1>
+    <div class="sub">FastAPI + PostgreSQL · real calls on this origin</div>
+  </div>
+  <span class="pill" id="clock" style="margin-left:auto">—</span>
+</header>
+
+<div class="wrap">
+
+  <!-- CONTROL BAR -->
+  <div class="card">
+    <h2>Traffic generator</h2>
+    <div class="body control">
+      <button id="genBtn" class="bigbtn go" onclick="toggleGen()">▶ Start traffic</button>
+      <div class="rate"><label>rate</label><input id="rateInput" type="number" min="1" max="50" value="10" /> orders/sec</div>
+      <button class="reset" onclick="resetDemo()" title="Clear orders/events and re-seed products">↺ Reset demo</button>
+      <div class="genstats">
+        <div class="g"><div class="n" id="g-sent">0</div><div class="l">Sent</div></div>
+        <div class="g ok"><div class="n" id="g-ok">0</div><div class="l">2xx</div></div>
+        <div class="g fail"><div class="n" id="g-fail">0</div><div class="l">Failed</div></div>
+        <div class="g"><div class="n" id="g-rate">0</div><div class="l">Actual /s</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MONITOR (hero) -->
+  <div class="card">
+    <h2>Live monitor <span class="pill" style="text-transform:none;letter-spacing:0">refresh 1s</span></h2>
+    <div class="body">
+      <div class="stat-row">
+        <div class="stat"><div class="n" id="m-orders">0</div><div class="l">Orders</div></div>
+        <div class="stat pending" id="m-pending-box"><div class="n" id="m-pending">0</div><div class="l">Pending events</div></div>
+        <div class="stat processed"><div class="n" id="m-processed">0</div><div class="l">Processed events</div></div>
+      </div>
+      <div class="spark">
+        <div class="cap"><span>Pending events — last 60s</span><span id="spark-max">0</span></div>
+        <svg viewBox="0 0 300 60" preserveAspectRatio="none"><polyline id="sparkline" fill="none" stroke="var(--amber)" stroke-width="2" vector-effect="non-scaling-stroke" points="" /></svg>
+      </div>
+      <div class="bars" id="bars"></div>
+      <p class="hint" style="margin:16px 0 0">Start traffic, then stop the worker in your terminal: pending climbs while stock holds. Restart the worker to watch it catch up.</p>
+    </div>
+  </div>
+
+  <!-- WORKER CONTROL (terminal) -->
+  <div class="card">
+    <h2>Worker outage — drive from your terminal</h2>
+    <div class="body">
+      <div class="term">
+<span class="m"># stop the stock worker — pending starts piling up in the monitor above</span>
+<span class="c">docker</span> compose stop worker
+
+<span class="m"># bring it back — the backlog drains and stock catches up</span>
+<span class="c">docker</span> compose start worker
+
+<span class="m"># or run the whole scripted scenario in one go</span>
+<span class="c">make</span> outage-demo
+      </div>
+    </div>
+  </div>
+
+  <!-- PLAYGROUND (secondary, collapsed) -->
+  <div class="card">
+    <h2>API playground</h2>
+    <div class="tabs" id="pg-tabs">
+      <button class="tab active" data-tab="create">POST /orders</button>
+      <button class="tab" data-tab="get">GET /orders/{ref}</button>
+      <button class="tab" data-tab="stock">GET /stock</button>
+      <button class="tab" data-tab="products">GET /products</button>
+      <button class="tab" data-tab="newproduct">New product</button>
+      <button class="tab" data-tab="setstock">PATCH stock</button>
+      <button class="tab" data-tab="feed">GET /events</button>
+      <button class="tab" data-tab="health">GET /health</button>
+      <button class="tab" data-tab="burst">Seed + burst</button>
+      <button class="tab" data-tab="oversell">Oversell</button>
+    </div>
+    <div class="body" id="pg-panels">
+
+      <div class="panel" data-panel="create">
+        <div class="ep-sig"><span class="method m-POST">POST</span><code>/orders</code><span class="desc">create an order (edit the body)</span></div>
+        <textarea id="orderBody">{
+  "order_ref": "web-console-1",
+  "customer_id": "cust-42",
+  "items": [
+    { "sku": "BAN-001", "qty": 2 },
+    { "sku": "APL-003", "qty": 1 }
+  ]
+}</textarea>
+        <div class="ep-run"><button class="primary" onclick="createOrder()">Send</button></div>
+      </div>
+
+      <div class="panel" data-panel="get" hidden>
+        <div class="ep-sig"><span class="method m-GET">GET</span><code>/orders/{order_ref}</code><span class="desc">fetch one order</span></div>
+        <div class="ep-run"><label>order_ref</label><input id="refInput" value="web-console-1" /><button onclick="getOrder()">Send</button></div>
+      </div>
+
+      <div class="panel" data-panel="stock" hidden>
+        <div class="ep-sig"><span class="method m-GET">GET</span><code>/products/{sku}/stock</code><span class="desc">current stock for a SKU</span></div>
+        <div class="ep-run"><label>sku</label><input id="skuInput" value="BAN-001" /><button onclick="getStock()">Send</button></div>
+      </div>
+
+      <div class="panel" data-panel="products" hidden>
+        <div class="ep-sig"><span class="method m-GET">GET</span><code>/products</code><span class="desc">catalogue — in-stock status only</span></div>
+        <div class="ep-run"><button onclick="call('GET','/products')" style="margin-left:0">Send</button></div>
+      </div>
+
+      <div class="panel" data-panel="newproduct" hidden>
+        <div class="ep-sig"><span class="method m-POST">POST</span><code>/products</code><span class="desc">create a new SKU</span></div>
+        <div class="ep-run" style="margin-bottom:8px"><label>sku</label><input id="npSku" value="EGG-012" /><label>name</label><input id="npName" value="Eggs 12pk" /></div>
+        <div class="ep-run"><label>price (cents)</label><input id="npPrice" type="number" value="349" style="width:100px" /><label>stock</label><input id="npStock" type="number" value="40" style="width:90px" /><button class="primary" onclick="createProduct()">Create</button></div>
+      </div>
+
+      <div class="panel" data-panel="setstock" hidden>
+        <div class="ep-sig"><span class="method m-PATCH">PATCH</span><code>/products/{sku}/stock</code><span class="desc">add to, or set, on-hand stock</span></div>
+        <div class="ep-run">
+          <label>sku</label><input id="ssSku" value="BAN-001" />
+          <label>amount</label><input id="ssAmt" type="number" value="10" style="width:90px" />
+          <button class="primary" onclick="patchStock('add')">Add</button>
+          <button onclick="patchStock('set')">Set</button>
+        </div>
+      </div>
+
+      <div class="panel" data-panel="feed" hidden>
+        <div class="ep-sig"><span class="method m-GET">GET</span><code>/events/orders</code><span class="desc">accepted-order feed from a cursor</span></div>
+        <div class="ep-run"><label>after_id</label><input id="afterInput" value="0" /><button onclick="getFeed()">Send</button></div>
+      </div>
+
+      <div class="panel" data-panel="health" hidden>
+        <div class="ep-sig"><span class="method m-GET">GET</span><code>/health</code><span class="desc">liveness + DB ping</span></div>
+        <div class="ep-run"><button onclick="hitHealth()">Send</button></div>
+      </div>
+
+      <div class="panel" data-panel="burst" hidden>
+        <div class="ep-sig"><span class="method m-POST">POST</span><code>/orders ×50</code><span class="desc">seed products, then a burst with duplicates</span></div>
+        <p class="hint" style="margin:0 0 10px">Clears orders, re-seeds products, then submits <b>50</b> orders — 27 unique + <b>23 duplicate</b> <code>order_ref</code>s. Expect <b>27 CREATED</b> / <b>23 DUPLICATE</b>.</p>
+        <div class="ep-run"><button class="primary" id="burstBtn" onclick="runBurst()" style="margin-left:0">Run seed + burst</button></div>
+        <div id="burst-summary" class="mono" style="margin-top:10px;color:var(--muted);font-size:13px"></div>
+        <pre id="burst-log" style="max-height:220px;overflow:auto;background:var(--sunken);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:12px"></pre>
+      </div>
+
+      <div class="panel" data-panel="oversell" hidden>
+        <div class="ep-sig"><span class="method m-POST">POST</span><code>/orders</code><span class="desc">reserve at checkout · reject oversell (409)</span></div>
+
+        <p class="hint" style="margin:0 0 8px"><b>Race — A vs B for the last 5.</b> Sets BAN-001 to 5, then fires two orders of 5 <i>at the same instant</i>. Exactly one wins; the other is rejected.</p>
+        <div class="ep-run"><button class="primary" id="raceBtn" onclick="raceDemo()" style="margin-left:0">Run A vs B race</button></div>
+        <pre id="race-out" style="min-height:60px;background:var(--sunken);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:12px"></pre>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:18px 0" />
+
+        <p class="hint" style="margin:0 0 8px"><b>Deplete to zero.</b> Sets BAN-001 to 8, then fires 12 orders of 1 — first 8 accepted, the rest rejected once available hits 0.</p>
+        <div class="ep-run"><button class="primary" id="depBtn" onclick="depleteDemo()" style="margin-left:0">Deplete BAN-001 to zero</button></div>
+        <pre id="deplete-out" style="max-height:220px;overflow:auto;background:var(--sunken);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:12px"></pre>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="card">
+    <h2>Response log <span class="pill" style="text-transform:none;letter-spacing:0">manual calls only</span>
+      <button style="margin-left:auto" onclick="document.getElementById('log').innerHTML=''">clear</button></h2>
+    <div class="body" style="padding:8px"><div id="log"></div></div>
+  </div>
+
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const baseline = {};
+const SKUS = ['BAN-001', 'APL-003', 'MLK-001'];
+const pendingHistory = [];
+
+const fmtTime = () => new Date().toLocaleTimeString();
+
+/* ---------- manual playground calls (logged) ---------- */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+function highlightJSON(obj) {
+  const json = escapeHtml(JSON.stringify(obj, null, 2));
+  return json.replace(
+    /("(?:\\.|[^"\\])*"(\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (m) => {
+      let cls = 'j-num';
+      if (m[0] === '"') cls = m.trim().endsWith(':') ? 'j-key' : 'j-str';
+      else if (m === 'true' || m === 'false') cls = 'j-bool';
+      else if (m === 'null') cls = 'j-null';
+      return `<span class="${cls}">${m}</span>`;
+    }
+  );
+}
+async function call(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const entry = document.createElement('div');
+  entry.className = 'entry';
+  let status = 'ERR', cls = 'serr', respHtml = '';
+  try {
+    const res = await fetch(path, opts);
+    status = res.status; cls = status < 300 ? 's2' : status < 500 ? 's4' : 's5';
+    const t = await res.text();
+    let obj = null; try { obj = JSON.parse(t); } catch {}
+    respHtml = obj !== null ? highlightJSON(obj) : escapeHtml(t);
+  } catch (e) { respHtml = escapeHtml(String(e)); }
+  entry.innerHTML = `<div class="head"><span class="method m-${method}">${method}</span>
+      <span>${escapeHtml(path)}</span><span class="badge ${cls}">${status}</span><span class="time">${fmtTime()}</span></div>
+    ${body !== undefined ? `<div class="req-label">request</div><pre class="code">${highlightJSON(body)}</pre>` : ''}
+    <div class="req-label">response</div><pre class="code">${respHtml}</pre>`;
+  const log = $('log'); log.insertBefore(entry, log.firstChild);
+  refresh();
+  return { status };
+}
+function createOrder() { let b; try { b = JSON.parse($('orderBody').value); } catch { alert('Invalid JSON'); return; } call('POST', '/orders', b); }
+const getOrder = () => call('GET', '/orders/' + encodeURIComponent($('refInput').value));
+const getStock = () => call('GET', '/products/' + encodeURIComponent($('skuInput').value) + '/stock');
+const getFeed  = () => call('GET', '/events/orders?after_id=' + encodeURIComponent($('afterInput').value));
+const hitHealth = () => call('GET', '/health');
+function patchStock(mode) {
+  const sku = $('ssSku').value, amt = parseInt($('ssAmt').value) || 0;
+  call('PATCH', '/products/' + encodeURIComponent(sku) + '/stock', { [mode]: amt });
+}
+function createProduct() {
+  call('POST', '/products', {
+    sku: $('npSku').value,
+    name: $('npName').value,
+    price_cents: parseInt($('npPrice').value) || 0,
+    stock: parseInt($('npStock').value) || 0,
+  });
+}
+// seed + burst: 50 submissions, 27 unique order_refs, 23 duplicates
+async function submitBurstOrder(ref) {
+  const sku = SKUS[Math.floor(Math.random() * SKUS.length)];
+  const res = await fetch('/orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_ref: ref, customer_id: 'cust-burst', items: [{ sku, qty: 1 }] }),
+  });
+  return (await res.json()).duplicate;
+}
+async function runBurst() {
+  const N = 50, DUP = 23, UNIQUE = N - DUP;   // 27 unique + 23 duplicates
+  const btn = $('burstBtn'), logEl = $('burst-log'), sum = $('burst-summary');
+  btn.disabled = true;
+  logEl.textContent = 'Seeding products + clearing orders...\n';
+  try { await fetch('/console/reset', { method: 'POST' }); } catch {}
+
+  const base = 'burst-' + Date.now();
+  const refs = Array.from({ length: UNIQUE }, (_, i) => `${base}-${i}`);
+  const seq = refs.slice();
+  for (let i = 0; i < DUP; i++) seq.push(refs[i % UNIQUE]);   // add the duplicates
+  for (let i = seq.length - 1; i > 0; i--) {                  // shuffle
+    const j = Math.floor(Math.random() * (i + 1));
+    [seq[i], seq[j]] = [seq[j], seq[i]];
+  }
+
+  let created = 0, dup = 0;
+  const lines = [];
+  for (let i = 0; i < seq.length; i++) {
+    const isDup = await submitBurstOrder(seq[i]);
+    isDup ? dup++ : created++;
+    lines.push(`${String(i + 1).padStart(2)}  ${seq[i]}  ->  ${isDup ? 'DUPLICATE' : 'CREATED'}`);
+    logEl.textContent = lines.join('\n');
+    logEl.scrollTop = logEl.scrollHeight;
+    sum.textContent = `submitted ${i + 1}/${N} · created ${created} · duplicate ${dup}`;
+  }
+  sum.textContent = `Done — requests: ${N} · unique orders: ${created} · duplicates: ${dup}`;
+  btn.disabled = false;
+  refresh();
+}
+
+// playground tabs
+function showTab(name) {
+  document.querySelectorAll('#pg-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('#pg-panels .panel').forEach(p => { p.hidden = p.dataset.panel !== name; });
+}
+document.querySelectorAll('#pg-tabs .tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+
+/* ---------- traffic generator (NOT logged; aggregate counters) ---------- */
+const gen = { on: false, timer: null, sent: 0, ok: 0, fail: 0, lastSent: 0 };
+function fireOne() {
+  const n = ++gen.sent;
+  const sku = SKUS[Math.floor(Math.random() * SKUS.length)];
+  const body = { order_ref: 'load-' + Date.now() + '-' + n, customer_id: 'load', items: [{ sku, qty: 1 }] };
+  fetch('/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => { r.ok ? gen.ok++ : gen.fail++; }).catch(() => gen.fail++);
+}
+function toggleGen() { gen.on ? stopGen() : startGen(); }
+function startGen() {
+  const rate = Math.max(1, Math.min(50, parseInt($('rateInput').value) || 10));
+  $('rateInput').value = rate;
+  gen.on = true;
+  const tick = () => { for (let i = 0; i < rate; i++) fireOne(); };  // rate requests/sec
+  tick();                                   // fire immediately, don't wait a second
+  gen.timer = setInterval(tick, 1000);
+  $('genBtn').textContent = '■ Stop traffic'; $('genBtn').className = 'bigbtn stop';
+}
+function stopGen() { gen.on = false; clearInterval(gen.timer); gen.timer = null; $('genBtn').textContent = '▶ Start traffic'; $('genBtn').className = 'bigbtn go'; }
+function updateGenStats() { $('g-sent').textContent = gen.sent; $('g-ok').textContent = gen.ok; $('g-fail').textContent = gen.fail; }
+
+async function resetDemo() {
+  if (!confirm('Clear all orders and events, and re-seed products to their defaults?')) return;
+  stopGen();
+  gen.sent = gen.ok = gen.fail = gen.lastSent = 0; updateGenStats(); $('g-rate').textContent = 0;
+  for (const k in baseline) delete baseline[k];
+  pendingHistory.length = 0;
+  await call('POST', '/console/reset');   // logged, then refresh()
+}
+
+/* ---------- monitor ---------- */
+// ---- oversell demos ----
+async function setStock(sku, stock) {
+  await fetch('/console/set_stock', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sku, stock }),
+  });
+}
+async function submitOne(ref, sku, qty) {
+  const res = await fetch('/orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_ref: ref, customer_id: 'cust-os', items: [{ sku, qty }] }),
+  });
+  let body = {}; try { body = await res.json(); } catch {}
+  return { status: res.status, body };
+}
+async function raceDemo() {
+  const btn = $('raceBtn'), out = $('race-out');
+  btn.disabled = true;
+  out.textContent = 'Reset + set BAN-001 = 5 ...';
+  await fetch('/console/reset', { method: 'POST' });
+  await setStock('BAN-001', 5);
+  const ts = Date.now();
+  const [a, b] = await Promise.all([         // fired together — the server serialises them
+    submitOne('race-A-' + ts, 'BAN-001', 5),
+    submitOne('race-B-' + ts, 'BAN-001', 5),
+  ]);
+  const fmt = (who, r) => r.status === 201
+    ? `${who}: 201  ✅ ACCEPTED — got the last 5`
+    : `${who}: ${r.status}  ❌ ${r.body.detail || 'rejected'}`;
+  out.textContent = 'Both ordered 5 of the last 5 BAN-001, at the same instant:\n\n'
+    + fmt('Customer A', a) + '\n' + fmt('Customer B', b);
+  btn.disabled = false;
+  refresh();
+}
+async function depleteDemo() {
+  const btn = $('depBtn'), out = $('deplete-out');
+  btn.disabled = true;
+  await fetch('/console/reset', { method: 'POST' });
+  await setStock('BAN-001', 8);
+  const ts = Date.now();
+  const lines = ['BAN-001 set to 8. Firing 12 orders of qty 1:', ''];
+  let ok = 0, rej = 0;
+  for (let i = 1; i <= 12; i++) {
+    const r = await submitOne('dep-' + ts + '-' + i, 'BAN-001', 1);
+    if (r.status === 201) { ok++; lines.push(`#${String(i).padStart(2)}  ->  201 ACCEPTED`); }
+    else { rej++; lines.push(`#${String(i).padStart(2)}  ->  ${r.status} REJECTED (${r.body.detail || 'out of stock'})`); }
+    out.textContent = lines.join('\n'); out.scrollTop = out.scrollHeight;
+  }
+  lines.push('', `Accepted ${ok} · Rejected ${rej} — BAN-001 available is now 0`);
+  out.textContent = lines.join('\n');
+  btn.disabled = false;
+  refresh();
+}
+
+// ---- monitor ----
+function bar(p) {
+  const avail = p.available;
+  if (!(p.sku in baseline) || p.on_hand > baseline[p.sku]) baseline[p.sku] = Math.max(p.on_hand, 1);
+  let pct = Math.max(0, Math.min(100, (avail / baseline[p.sku]) * 100)), cls = 'fill';
+  if (avail <= 0) { cls += ' neg'; pct = 100; } else if (pct < 30) cls += ' low';
+  const sub = `on-hand ${p.on_hand}${p.reserved ? ' · reserved ' + p.reserved : ''}`;
+  return `<div class="bar-row"><div class="sku">${p.sku}<small>${sub}</small></div>
+      <div class="track"><div class="${cls}" style="width:${pct}%"></div></div><div class="val">${avail}</div></div>`;
+}
+function drawSpark() {
+  const max = Math.max(1, ...pendingHistory);
+  $('spark-max').textContent = 'peak ' + Math.max(...pendingHistory, 0);
+  const n = pendingHistory.length;
+  const pts = pendingHistory.map((v, i) => {
+    const x = n <= 1 ? 0 : (i / (n - 1)) * 300;
+    const y = 58 - (v / max) * 54;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  $('sparkline').setAttribute('points', pts);
+}
+async function refresh() {
+  try {
+    const s = await (await fetch('/console/stats')).json();
+    $('health').className = 'dot ok';
+    $('m-orders').textContent = s.orders;
+    $('m-pending').textContent = s.pending_events;
+    $('m-processed').textContent = s.processed_events;
+    $('m-pending-box').classList.toggle('hot', s.pending_events > 0);
+    $('bars').innerHTML = s.products.map(bar).join('');
+    pendingHistory.push(s.pending_events); if (pendingHistory.length > 60) pendingHistory.shift();
+    drawSpark();
+  } catch { $('health').className = 'dot bad'; }
+}
+
+setInterval(() => {
+  $('clock').textContent = fmtTime();
+  $('g-rate').textContent = gen.sent - gen.lastSent; gen.lastSent = gen.sent;
+  updateGenStats();
+}, 1000);
+setInterval(refresh, 1000);
+refresh();
+</script>
+</body>
+</html>

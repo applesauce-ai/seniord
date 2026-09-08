@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+
+    # The integration tests run against a real PostgreSQL, so spin one up as a
+    # service container. It's reachable on localhost:5432 from the job steps.
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: orders
+          POSTGRES_PASSWORD: orders
+          POSTGRES_DB: orders_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orders -d orders_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+
+    env:
+      DATABASE_URL: postgresql://orders:orders@localhost:5432/orders_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Test
+        id: test
+        run: |
+          mkdir -p TestResults
+          pytest --junitxml=TestResults/junit.xml
+
+      # Parse the JUnit XML into pass/fail/total plus the names of any failures.
+      # Runs even if tests failed so we can still report the numbers.
+      - name: Summarise test results
+        id: summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import glob, os, xml.etree.ElementTree as ET
+
+          total = failed = skipped = 0
+          names = []
+          for path in glob.glob("TestResults/*.xml"):
+              for ts in ET.parse(path).getroot().iter("testsuite"):
+                  total   += int(ts.get("tests", 0))
+                  failed  += int(ts.get("failures", 0)) + int(ts.get("errors", 0))
+                  skipped += int(ts.get("skipped", 0))
+                  for tc in ts.iter("testcase"):
+                      if tc.find("failure") is not None or tc.find("error") is not None:
+                          cls = (tc.get("classname") or "").removeprefix("tests.")
+                          names.append(f"{cls}.{tc.get('name')}")
+
+          passed = total - failed - skipped
+          names = sorted(set(names))
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as g:
+              g.write(f"total={total}\npassed={passed}\nfailed={failed}\n")
+              g.write("failed_names<<__EOF__\n" + "\n".join(names) + "\n__EOF__\n")
+
+          # A readable summary on the run's page (the "stored in GitHub" bit).
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as s:
+              s.write(f"## Tests: {passed} passed, {failed} failed, {total} total\n")
+              if names:
+                  s.write("\n**Failed:**\n" + "".join(f"- {n}\n" for n in names))
+
+          print(f"Test totals: {passed} passed, {failed} failed, {total} total")
+          PY
+
+      # Keep the raw results on the run for download/inspection.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/
+          if-no-files-found: warn
+
+      # Post the run outcome + test details to Discord (success and failure).
+      # If the secret isn't set (e.g. a fork PR), the step skips gracefully.
+      - name: Notify Discord
+        if: always()
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          STATUS: ${{ job.status }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PASSED: ${{ steps.summary.outputs.passed }}
+          FAILED: ${{ steps.summary.outputs.failed }}
+          TOTAL: ${{ steps.summary.outputs.total }}
+          FAILED_NAMES: ${{ steps.summary.outputs.failed_names }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK secret not set — skipping notification."
+            exit 0
+          fi
+
+          case "$STATUS" in
+            success) color=3066993;  emoji="✅" ;;   # green
+            failure) color=15158332; emoji="❌" ;;   # red
+            *)       color=9807270;  emoji="⚠️" ;;   # grey (cancelled)
+          esac
+
+          tests="${PASSED:-0} passed"
+          [ "${FAILED:-0}" != "0" ] && tests="$tests, ${FAILED} failed"
+          tests="$tests / ${TOTAL:-0} total"
+
+          # Bulleted, capped list of failed tests (Discord field values max ~1024 chars).
+          failed_list=""
+          clean=$(printf '%s\n' "$FAILED_NAMES" | sed '/^[[:space:]]*$/d')
+          if [ "${FAILED:-0}" != "0" ] && [ -n "$clean" ]; then
+            count=$(printf '%s\n' "$clean" | wc -l)
+            failed_list=$(printf '%s\n' "$clean" | head -15 | sed 's/^/• /')
+            [ "$count" -gt 15 ] && failed_list="$failed_list"$'\n'"…and $((count - 15)) more"
+            failed_list=${failed_list:0:1000}
+          fi
+
+          payload=$(jq -n \
+            --arg title  "$emoji CI ${STATUS} — ${REPO}" \
+            --arg url    "$RUN_URL" \
+            --argjson color $color \
+            --arg branch "$BRANCH" \
+            --arg commit "${SHA:0:7}" \
+            --arg event  "$EVENT" \
+            --arg actor  "$ACTOR" \
+            --arg tests  "$tests" \
+            --arg failed_list "$failed_list" \
+            '{username:"GitHub Actions", embeds:[{
+               title:$title, url:$url, color:$color,
+               fields:(
+                 [
+                   {name:"Branch", value:$branch, inline:true},
+                   {name:"Commit", value:$commit, inline:true},
+                   {name:"Event",  value:$event,  inline:true},
+                   {name:"Tests",  value:$tests,  inline:false},
+                   {name:"By",     value:$actor,  inline:true}
+                 ]
+                 + (if $failed_list == "" then [] else [{name:"Failed tests", value:$failed_list, inline:false}] end)
+               ),
+               timestamp:(now|todate)
+             }]}')
+
+          curl -sS -H "Content-Type: application/json" -X POST -d "$payload" "$WEBHOOK"

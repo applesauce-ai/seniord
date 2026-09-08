@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.venv/
+venv/
+
+# Personal notes — not part of the deliverable
+video-script.md
