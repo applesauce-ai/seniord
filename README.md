@@ -12,6 +12,8 @@ full e-commerce platform. Scope is deliberately small.
 
 > Runs locally on **Linux or macOS** via Docker Compose.
 
+📺 **[Tech Assessment Overview Video](https://youtu.be/OivLB2jD3D8)** — a short walkthrough of the working system and design.
+
 ---
 
 ## Architecture
